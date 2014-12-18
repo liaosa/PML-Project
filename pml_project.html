@@ -106,7 +106,9 @@ length(drop)</code></pre>
 <pre><code>## [1] 105</code></pre>
 <pre class="r"><code>train2&lt;-train[,!names(train)%in%drop]</code></pre>
 <p>Here we drop 105 variables and keep 55 variables and get the data set train2, which includes 54 predictors only, 53 numeric variable and one binary variable. By further filtering near-zero-variance numeric predictors, all 54 predictors can provide information for prediction purpose. Also no significant between-predcitor correlation is detected. Thus we advance to do predictive modeling.</p>
+<pre class="r"><code>nearZeroVar(train2[,-1])</code></pre>
 <pre><code>## integer(0)</code></pre>
+<pre class="r"><code>findLinearCombos(train2[,-c(1,55)])</code></pre>
 <pre><code>## $linearCombos
 ## list()
 ## 

@@ -48,7 +48,7 @@ train2<-train[,!names(train)%in%drop]
 
 Here we drop 105 variables and keep 55 variables and get the data set train2, which includes 54 predictors only, 53 numeric variable and one binary variable. By further filtering near-zero-variance numeric predictors, all 54 predictors can provide information for prediction purpose. Also no significant between-predcitor correlation is detected. Thus we advance to do predictive modeling.
 
-```{r, echo=FALSE}
+```{r, echo=TRUE}
 nearZeroVar(train2[,-1])
 findLinearCombos(train2[,-c(1,55)])
 ```
