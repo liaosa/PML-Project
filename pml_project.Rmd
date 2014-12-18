@@ -1,0 +1,254 @@
+---
+title: "PML_project"
+output: html_document
+---
+
+#Practical Machine Learning Course Project
+
+For this project, we aimed to predict the activity of an individual based on other predictors. The model used in this project is random forest (RF) and generalized boosting model (GBM). The final model will be applied to predict20 test cases in the test data set.
+
+### Set options
+```{r setoptions,echo=TRUE}
+#setwd("N:\\Coursera\\Data_Science_JH\\Practical Maching Learning\\project")
+library(knitr)
+library(markdown)
+library(caret)
+library(randomForest)
+library(gbm)
+opts_chunk$set(echo=TRUE,results="markup")
+```
+
+## Data Loading and cleaning
+First, we load the data, note the missing values are replaces as NA values.
+
+```{r}
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+train <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+test  <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+```
+
+By inspecting the data, it is found there are some summary variables, which cannot be used for prediction purpose such as the vaiable name containing "kurtosis", "skewness", "min", "max", "skew", "mean", etc. We remove such variables from the data set.
+
+```{r}
+colnames<-names(train)
+drop<-character(0)
+drop<-c(drop,colnames[1:5])
+drop<-c(drop,colnames[grep("kurtosis",colnames)])
+drop<-c(drop,colnames[grep("skewness",colnames)])
+drop<-c(drop,colnames[grep("max",colnames)])
+drop<-c(drop,colnames[grep("min",colnames)])
+drop<-c(drop,colnames[grep("var",colnames)])
+drop<-c(drop,colnames[grep("avg",colnames)])
+drop<-c(drop,colnames[grep("stddev",colnames)])
+drop<-c(drop,colnames[grep("amplitude",colnames)])
+length(drop)
+train2<-train[,!names(train)%in%drop]
+``` 
+
+Here we drop 105 variables and keep 55 variables and get the data set train2, which includes 54 predictors only, 53 numeric variable and one binary variable. By further filtering near-zero-variance numeric predictors, all 54 predictors can provide information for prediction purpose. Also no significant between-predcitor correlation is detected. Thus we advance to do predictive modeling.
+
+```{r, echo=FALSE}
+nearZeroVar(train2[,-1])
+findLinearCombos(train2[,-c(1,55)])
+```
+
+## Model Selection and Tunning
+
+Now, we split the train2 data into training and testing data sets.
+
+```{r}
+set.seed(477)
+inTrain <- createDataPartition(y=train2$classe, p=0.6, list=FALSE)
+training <- train2[inTrain, ]; testing <- train2[-inTrain, ]
+dim(training); dim(testing)
+```
+
+To find the tunning parameters for both RF and GBM model, we use "accuracy" as critreion and call "multiClassSummary" function for illustration purpose. 
+
+```{r, echo=F}
+multiClassSummary <- function (data, lev = NULL, model = NULL){
+  
+  #Load Libraries
+  require(Metrics)
+  require(caret)
+  
+  #Check data
+  if (!all(levels(data[, "pred"]) == levels(data[, "obs"]))) 
+    stop("levels of observed and predicted data do not match")
+  
+  #Calculate custom one-vs-all stats for each class
+  prob_stats <- lapply(levels(data[, "pred"]), function(class){
+    
+    #Grab one-vs-all data for the class
+    pred <- ifelse(data[, "pred"] == class, 1, 0)
+    obs  <- ifelse(data[,  "obs"] == class, 1, 0)
+    prob <- data[,class]
+    
+    #Calculate one-vs-all AUC and logLoss and return
+    cap_prob <- pmin(pmax(prob, .000001), .999999)
+    prob_stats <- c(auc(obs, prob), logLoss(obs, cap_prob))
+    names(prob_stats) <- c('ROC', 'logLoss')
+    return(prob_stats) 
+  })
+  prob_stats <- do.call(rbind, prob_stats)
+  rownames(prob_stats) <- paste('Class:', levels(data[, "pred"]))
+  
+  #Calculate confusion matrix-based statistics
+  CM <- confusionMatrix(data[, "pred"], data[, "obs"])
+  
+  #Aggregate and average class-wise stats
+  #Todo: add weights
+  # RES: support two classes here as well
+  #browser() # Debug
+  if (length(levels(data[, "pred"])) == 2) {
+    class_stats <- c(CM$byClass, prob_stats[1,])
+  } else {
+    class_stats <- cbind(CM$byClass, prob_stats)
+    class_stats <- colMeans(class_stats)
+  }
+  
+  # Aggregate overall stats
+  overall_stats <- c(CM$overall)
+  
+  # Combine overall with class-wise stats and remove some stats we don't want 
+  stats <- c(overall_stats, class_stats)
+  stats <- stats[! names(stats) %in% c('AccuracyNull', 
+                                       'Prevalence', 'Detection Prevalence')]
+  
+  # Clean names
+  names(stats) <- gsub('[[:blank:]]+', '_', names(stats))
+  
+  if (length(levels(data[, "pred"]) == 2)) {
+    # Change name ordering to place most useful first
+    # May want to remove some of these eventually
+    stats <- stats[c("ROC", "Sensitivity", "Specificity", "Accuracy", "Kappa", "logLoss",
+                     "AccuracyLower", "AccuracyUpper", "AccuracyPValue", "McnemarPValue",
+                     "Pos_Pred_Value", "Neg_Pred_Value", "Detection_Rate",
+                     "Balanced_Accuracy")]
+  }
+  
+  return(stats)
+}
+```
+
+
+```{r, echo=FALSE,eval=FALSE}
+#do parallel computation
+library(doParallel)
+#setup parallel computations
+detectCores()
+# Create cluster with desired number of cores
+cl <- makeCluster(2)
+# Register cluster
+registerDoParallel(cl)
+# Find out how many cores are being used
+getDoParWorkers()
+#stopCluster(cl)
+```
+
+Firstly, we tune random forest model with 500 trees using 10-fold cross-valisation and the final model is based on tunning parameter mtr=20 with accuracy  0.9973677.  
+
+```{r,echo=FALSE}
+load("project_12_17.Rdata")
+```
+
+```{r,eval=FALSE}
+ctrl<-trainControl(method='cv', 
+                   number=10, 
+                   classProbs=TRUE,
+                   summaryFunction=multiClassSummary)
+
+mtryValues <- c(5, 10, 20, 32, 50, 100, 250, 500, 1000)
+
+set.seed(477)
+rfFit <- train(x = training[,-55], 
+               y=training$classe, 
+               method = "rf",
+               ntree = 500,
+               tuneGrid = data.frame(mtry = mtryValues),
+               importance = TRUE,
+               metric = "Accuracy",
+               trControl = ctrl)
+```
+
+```{r}
+rfFit
+```
+
+As for GBM model tunning, the final values used for the GBM model were n.trees = 500, interaction.depth = 9 and shrinkage = 0.1. And the accuracy is 0.9993212.
+
+```{r,eval=FALSE}
+gbmGrid <- expand.grid(interaction.depth = c(1, 3, 5, 7, 9),
+                       n.trees = (1:5)*100,
+                       shrinkage = c(.01, .1))
+
+set.seed(476)
+gbmFit <- train(x = training[,-55], 
+                y=training$classe, 
+                method = "gbm",
+                tuneGrid = gbmGrid,
+                metric ="Accuracy",
+                verbose = FALSE,
+                trControl = ctrl)
+```
+
+```{r}
+gbmFit
+```
+
+Tested on hold-out testing data set, we find that GBM model performed better (accuracy 0.9996) than RF model with accuracy 0.998, thus will be used as our final model.
+
+```{r}
+#prediction on testing data set
+#RF model
+pred_rf <- predict(rfFit, testing[,-55], type = "raw")
+confusionMatrix(pred_rf, testing$classe)
+
+#GBM model
+pred_gbm <- predict(gbmFit, testing[,-55], type = "raw")
+confusionMatrix(pred_gbm, testing$classe)
+```
+
+We refit the GBM model using all train2 data and the tuning parameters are based on previous seleeted values, i.e., n.trees = 500, interaction.depth = 9 and shrinkage = 0.1.
+
+```{r,eval=FALSE}
+gbmGrid <- expand.grid(interaction.depth = 9,
+                       n.trees = 500,
+                       shrinkage = 0.1)
+
+set.seed(476)
+fm2 <- train(x = train2[,-55], 
+                y=train2$classe, 
+                method = "gbm",
+                tuneGrid = gbmGrid,
+                verbose = FALSE)
+```
+
+```{r}
+fm2
+```
+
+# Conclusions and Test Data Predcition
+
+```{r}
+## Preprocess test data set and use final model fm2 to do the prediction.
+## Generating Files to submit as answers for the Assignment:
+test2<-test[,!names(train)%in%drop]
+head(test2[,1:5])
+#prediction using final model
+pred_test2<-predict(fm2,test2[,-55],type="raw")
+#Function to generate files with predictions to submit for assignment:
+##process test data set
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(pred_test2)
+```
+
